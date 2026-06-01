@@ -71,4 +71,5 @@ class DiscourseClient:
             posts_count=t.get("posts_count", 0), views=t.get("views", 0),
             like_count=t.get("like_count", 0),
             url=f"{self.base_url}/t/{t.get('slug', '')}/{t['id']}",
+            pinned=bool(t.get("pinned", False)),
         )

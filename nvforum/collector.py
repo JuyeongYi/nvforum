@@ -27,7 +27,9 @@ def collect(client, store, boards: dict, since=None, full=False) -> dict:
                     break
                 for tm in topics:
                     if cutoff is not None and tm.last_posted_at < cutoff:
-                        stop = True  # 활동순 정렬 → 이후는 모두 더 오래됨
+                        if tm.pinned:
+                            continue  # 고정 토픽은 정렬을 깨므로 중단 트리거 금지, 스킵
+                        stop = True  # 비고정 + 오래됨 → 이후 비고정은 모두 더 오래됨
                         break
                     # 리스트에서 얻은 메타데이터는 포스트 조회 전에 먼저 저장
                     store.upsert_topic(alias, tm)

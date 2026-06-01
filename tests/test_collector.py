@@ -119,6 +119,24 @@ def test_collect_skips_failing_topic_and_continues():
     assert store.get_last_collected("Spark") == "2026-05-10T00:00:00Z"  # 커서 전진
 
 
+def test_collect_skips_old_pinned_without_stopping():
+    # 고정 오래된 토픽이 맨 위(정렬 깨짐) → 중단 금지. 이후 최신 비고정은 수집, 오래된 비고정에서 중단.
+    pinned_old = TopicMeta(1, "pin", "s", "2025-01-01T00:00:00Z",
+                           "2025-03-01T00:00:00Z", 1, 0, 0, "u", pinned=True)
+    recent = TopicMeta(2, "r", "s", "2026-05-01T00:00:00Z",
+                       "2026-06-01T00:00:00Z", 1, 0, 0, "u")
+    old = TopicMeta(3, "o", "s", "2026-04-01T00:00:00Z",
+                    "2026-04-10T00:00:00Z", 1, 0, 0, "u")
+    client = FakeClient([([pinned_old, recent, old], False)],
+                        {1: [_p(10, 1)], 2: [_p(20, 2)], 3: [_p(30, 3)]})
+    store = _store()
+    board = Board("Spark", 721, "u")
+    store.upsert_board(board)
+    summary = collect(client, store, {"Spark": board}, since="2026-05-20")
+    assert client.fetched_topics == [2]  # 고정 오래된 스킵, 최신 수집, 오래된 비고정에서 중단
+    assert summary["Spark"]["topics"] == 1
+
+
 def test_collect_flags_partial_large_topic():
     big = TopicMeta(
         topic_id=1, title="t", slug="s", created_at="2026-01-01T00:00:00Z",

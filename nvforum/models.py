@@ -19,6 +19,7 @@ class TopicMeta:
     views: int
     like_count: int
     url: str
+    pinned: bool = False
 
 
 @dataclass
