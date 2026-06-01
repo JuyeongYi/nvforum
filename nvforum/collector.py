@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 def _cutoff_for(store, board, since, full):
     if full:
         return None
@@ -7,10 +12,10 @@ def _cutoff_for(store, board, since, full):
 
 
 def collect(client, store, boards: dict, since=None, full=False) -> dict:
-    """대상 보드들을 수집. {alias: {topics, posts, error}} 요약 반환."""
+    """대상 보드들을 수집. {alias: {topics, posts, skipped, partial, error}} 요약 반환."""
     summary = {}
     for alias, board in boards.items():
-        result = {"topics": 0, "posts": 0, "error": None}
+        result = {"topics": 0, "posts": 0, "skipped": 0, "partial": 0, "error": None}
         try:
             cutoff = _cutoff_for(store, board, since, full)
             max_seen = None
@@ -24,11 +29,30 @@ def collect(client, store, boards: dict, since=None, full=False) -> dict:
                     if cutoff is not None and tm.last_posted_at < cutoff:
                         stop = True  # 활동순 정렬 → 이후는 모두 더 오래됨
                         break
+                    # 리스트에서 얻은 메타데이터는 포스트 조회 전에 먼저 저장
                     store.upsert_topic(alias, tm)
-                    for post in client.fetch_topic(tm.topic_id):
+                    try:
+                        posts = client.fetch_topic(tm.topic_id)
+                    except Exception as exc:  # 토픽 단위 격리 (삭제/404 등)
+                        logger.warning(
+                            "토픽 %s 포스트 조회 실패, 건너뜀: %s", tm.topic_id, exc
+                        )
+                        result["skipped"] += 1
+                        # 커서가 막히지 않도록 이 토픽 기준으로도 max_seen 전진
+                        if max_seen is None or tm.last_posted_at > max_seen:
+                            max_seen = tm.last_posted_at
+                        continue
+                    for post in posts:
                         store.upsert_post(post)
                         result["posts"] += 1
                     result["topics"] += 1
+                    if len(posts) < tm.posts_count:
+                        logger.warning(
+                            "토픽 %s 부분 저장: 포스트 첫 페이지만 수집됨 (%s/%s)",
+                            tm.topic_id, len(posts), tm.posts_count,
+                        )
+                        result["partial"] += 1
+                    # 가장 최근 토픽은 다음 실행 때 재조회될 수 있으나 upsert라 무해
                     if max_seen is None or tm.last_posted_at > max_seen:
                         max_seen = tm.last_posted_at
                 if not has_more:

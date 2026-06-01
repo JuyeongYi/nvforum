@@ -97,3 +97,38 @@ def test_collect_isolates_board_failure():
     summary = collect(client, store, {"Bad": bad, "Spark": good}, full=True)
     assert summary["Bad"]["error"] is not None
     assert summary["Spark"]["topics"] == 1
+
+
+def test_collect_skips_failing_topic_and_continues():
+    pages = [([_tm(1, "2026-05-10T00:00:00Z"), _tm(2, "2026-05-09T00:00:00Z")], False)]
+
+    class PartialClient(FakeClient):
+        def fetch_topic(self, topic_id):
+            if topic_id == 1:
+                raise RuntimeError("404 deleted")
+            return super().fetch_topic(topic_id)
+
+    client = PartialClient(pages, {2: [_p(20, 2)]})
+    store = _store()
+    board = Board("Spark", 721, "u")
+    store.upsert_board(board)
+    summary = collect(client, store, {"Spark": board}, full=True)
+    assert summary["Spark"]["skipped"] == 1
+    assert summary["Spark"]["topics"] == 1  # 토픽2는 정상 수집
+    assert summary["Spark"]["error"] is None  # 보드는 중단되지 않음
+    assert store.get_last_collected("Spark") == "2026-05-10T00:00:00Z"  # 커서 전진
+
+
+def test_collect_flags_partial_large_topic():
+    big = TopicMeta(
+        topic_id=1, title="t", slug="s", created_at="2026-01-01T00:00:00Z",
+        last_posted_at="2026-05-10T00:00:00Z", posts_count=50, views=0,
+        like_count=0, url="u",
+    )
+    client = FakeClient([([big], False)], {1: [_p(10, 1)]})  # 50개 중 1개만 반환
+    store = _store()
+    board = Board("Spark", 721, "u")
+    store.upsert_board(board)
+    summary = collect(client, store, {"Spark": board}, full=True)
+    assert summary["Spark"]["partial"] == 1
+    assert summary["Spark"]["topics"] == 1

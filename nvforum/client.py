@@ -14,7 +14,7 @@ def _default_fetch_json(min_interval: float, max_retries: int, sleep):
 
     def fetch(url: str) -> dict:
         delay = 1.0
-        for attempt in range(max_retries):
+        for _ in range(max_retries):
             resp = session.get(url, timeout=30)
             if resp.status_code in (429, 500, 502, 503, 504):
                 sleep(delay)

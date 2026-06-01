@@ -34,7 +34,6 @@ CREATE INDEX IF NOT EXISTS idx_topics_board ON topics(board_alias);
 class Store:
     def __init__(self, db_path: str):
         self.conn = sqlite3.connect(db_path)
-        self.conn.execute("PRAGMA foreign_keys = ON")
 
     def init_schema(self) -> None:
         self.conn.executescript(_SCHEMA)
