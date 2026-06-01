@@ -6,6 +6,7 @@ from nvforum.htmltext import html_to_text
 from nvforum.models import Board, TopicMeta, Post
 
 _UA = "NVForum-collector/0.1 (personal research tool)"
+_POSTS_CHUNK = 40
 
 
 def _default_fetch_json(min_interval: float, max_retries: int, sleep):
@@ -50,19 +51,28 @@ class DiscourseClient:
         return topics, bool(tl.get("more_topics_url"))
 
     def fetch_topic(self, topic_id: int) -> list[Post]:
-        url = f"{self.base_url}/t/{topic_id}.json"
-        data = self.fetch_json(url)
-        posts = []
-        for p in data["post_stream"]["posts"]:
-            cooked = p.get("cooked", "")
-            posts.append(Post(
-                post_id=p["id"], topic_id=topic_id,
-                post_number=p.get("post_number", 0),
-                username=p.get("username", ""),
-                created_at=p["created_at"], updated_at=p.get("updated_at", ""),
-                cooked_html=cooked, plain_text=html_to_text(cooked),
-            ))
+        data = self.fetch_json(f"{self.base_url}/t/{topic_id}.json")
+        stream = data["post_stream"]
+        posts = [self._to_post(topic_id, p) for p in stream["posts"]]
+        fetched = {p.post_id for p in posts}
+        remaining = [pid for pid in stream.get("stream", []) if pid not in fetched]
+        for i in range(0, len(remaining), _POSTS_CHUNK):
+            chunk = remaining[i:i + _POSTS_CHUNK]
+            qs = "&".join(f"post_ids[]={pid}" for pid in chunk)
+            cdata = self.fetch_json(f"{self.base_url}/t/{topic_id}/posts.json?{qs}")
+            posts.extend(self._to_post(topic_id, p) for p in cdata["post_stream"]["posts"])
+        posts.sort(key=lambda p: p.post_number)
         return posts
+
+    def _to_post(self, topic_id: int, p: dict) -> Post:
+        cooked = p.get("cooked", "")
+        return Post(
+            post_id=p["id"], topic_id=topic_id,
+            post_number=p.get("post_number", 0),
+            username=p.get("username", ""),
+            created_at=p["created_at"], updated_at=p.get("updated_at", ""),
+            cooked_html=cooked, plain_text=html_to_text(cooked),
+        )
 
     def _to_topic_meta(self, t: dict) -> TopicMeta:
         return TopicMeta(
